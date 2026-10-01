@@ -1,0 +1,61 @@
+@prefix eco: <https://ecosystem-training.local/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<https://ecosystem-training.local/building/panther_education_diann> a eco:Building ;
+    eco:belongsToSite <https://ecosystem-training.local/site/panther> ;
+    eco:hasArea 2.2004e+03 ;
+    eco:hasUsage <https://ecosystem-training.local/usage/education> .
+
+<https://ecosystem-training.local/building/panther_education_gina> a eco:Building ;
+    eco:belongsToSite <https://ecosystem-training.local/site/panther> ;
+    eco:hasArea 1.08331e+04 ;
+    eco:hasUsage <https://ecosystem-training.local/usage/education> .
+
+<https://ecosystem-training.local/building/panther_education_mattie> a eco:Building ;
+    eco:belongsToSite <https://ecosystem-training.local/site/panther> ;
+    eco:hasArea 4.994e+02 ;
+    eco:hasUsage <https://ecosystem-training.local/usage/education> .
+
+<https://ecosystem-training.local/building/panther_education_misty> a eco:Building ;
+    eco:belongsToSite <https://ecosystem-training.local/site/panther> ;
+    eco:hasArea 2.527e+02 ;
+    eco:hasUsage <https://ecosystem-training.local/usage/education> .
+
+<https://ecosystem-training.local/building/panther_education_rosalie> a eco:Building ;
+    eco:belongsToSite <https://ecosystem-training.local/site/panther> ;
+    eco:hasArea 6.905e+02 ;
+    eco:hasUsage <https://ecosystem-training.local/usage/education> .
+
+<https://ecosystem-training.local/building/panther_lodging_dean> a eco:Building ;
+    eco:belongsToSite <https://ecosystem-training.local/site/panther> ;
+    eco:hasArea 5.088e+02 ;
+    eco:hasUsage <https://ecosystem-training.local/usage/lodging_residential> .
+
+<https://ecosystem-training.local/building/panther_lodging_ricky> a eco:Building ;
+    eco:belongsToSite <https://ecosystem-training.local/site/panther> ;
+    eco:hasArea 4.831e+02 ;
+    eco:hasUsage <https://ecosystem-training.local/usage/lodging_residential> .
+
+<https://ecosystem-training.local/building/panther_lodging_shelia> a eco:Building ;
+    eco:belongsToSite <https://ecosystem-training.local/site/panther> ;
+    eco:hasArea 9.29e+02 ;
+    eco:hasUsage <https://ecosystem-training.local/usage/lodging_residential> .
+
+<https://ecosystem-training.local/building/panther_office_daina> a eco:Building ;
+    eco:belongsToSite <https://ecosystem-training.local/site/panther> ;
+    eco:hasArea 1.338e+02 ;
+    eco:hasUsage <https://ecosystem-training.local/usage/office> .
+
+<https://ecosystem-training.local/building/panther_office_woodrow> a eco:Building ;
+    eco:belongsToSite <https://ecosystem-training.local/site/panther> ;
+    eco:hasArea 5.378e+02 ;
+    eco:hasUsage <https://ecosystem-training.local/usage/office> .
+
+<https://ecosystem-training.local/usage/office> a eco:PrimarySpaceUsage .
+
+<https://ecosystem-training.local/usage/lodging_residential> a eco:PrimarySpaceUsage .
+
+<https://ecosystem-training.local/usage/education> a eco:PrimarySpaceUsage .
+
+<https://ecosystem-training.local/site/panther> a eco:Site .
+
