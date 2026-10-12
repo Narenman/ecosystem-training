@@ -13,6 +13,7 @@ Current Status:
 - Repository ready
 - BDG2 downloaded
 - Initial metadata exploration completed
+- S2 implemented: named graphs, typed literals and N-Triples exports generated
 
 Dataset:
 Building Data Genome Project 2 (BDG2)
