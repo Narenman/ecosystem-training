@@ -1,184 +1,276 @@
-#%% Imports 
 from __future__ import annotations
 
+import csv
+from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import Path
-from typing import Dict, Iterable, Tuple
 
-import pandas as pd
-from rdflib import ConjunctiveGraph, Graph, Literal, Namespace, URIRef
-from rdflib import Dataset # Replaces ConjunctiveGraph in newer versions of rdflib
+from rdflib import Dataset, Graph, Literal, Namespace, URIRef
 from rdflib.namespace import RDF, XSD
 
-
-#%% Constants
-# RDF namespace for the project
 BASE = Namespace("https://ecosystem-training.local/")
-# Named graph URIs
 BUILDINGS_GRAPH = URIRef(BASE + "graphs/buildings")
 WEATHER_GRAPH = URIRef(BASE + "graphs/weather")
 MEASUREMENTS_GRAPH = URIRef(BASE + "graphs/measurements")
 
+PERIOD_START = datetime(2016, 1, 1)
+PERIOD_END = datetime(2016, 2, 1)
+SELECTED_BUILDINGS = (
+    "Robin_public_Carolina",
+    "Robin_lodging_Dorthy",
+    "Robin_education_Zenia",
+)
+
+GRAPH_EXPORTS = {
+    "buildings": BUILDINGS_GRAPH,
+    "measurements": MEASUREMENTS_GRAPH,
+    "weather": WEATHER_GRAPH,
+}
 
 
-#%% Helper Functions
-
-# Normalize a string to create a valid identifier for URIs
 def normalize_identifier(value: object) -> str:
     text = str(value).strip().replace("/", "_").replace(" ", "_").replace("-", "_").lower()
     return text or "unknown"
 
 
-# Convert an RDF value to its N-Triples representation
+def _parse_datetime(value: str, *, source: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError(f"Invalid timestamp in {source}: {value!r}") from error
+
+
+def _parse_decimal(value: str | None, *, source: str) -> Decimal:
+    if value is None or not value.strip():
+        raise ValueError(f"Missing numeric value in {source}")
+    try:
+        number = Decimal(value)
+    except InvalidOperation as error:
+        raise ValueError(f"Invalid numeric value in {source}: {value!r}") from error
+    if not number.is_finite():
+        raise ValueError(f"Non-finite numeric value in {source}: {value!r}")
+    return number
+
+
+def _decimal_literal(value: Decimal) -> Literal:
+    return Literal(value, datatype=XSD.decimal, normalize=False)
+
+
+def _datetime_literal(value: datetime) -> Literal:
+    return Literal(value.isoformat(timespec="seconds"), datatype=XSD.dateTime, normalize=False)
+
+
+def _expected_timestamps() -> set[datetime]:
+    timestamps: set[datetime] = set()
+    timestamp = PERIOD_START
+    while timestamp < PERIOD_END:
+        timestamps.add(timestamp)
+        timestamp += timedelta(hours=1)
+    return timestamps
+
+
+def _validate_coverage(
+    actual: set[datetime], *, source: str, identifier: str
+) -> None:
+    expected = _expected_timestamps()
+    missing = sorted(expected - actual)
+    unexpected = sorted(actual - expected)
+    if missing or unexpected:
+        details = []
+        if missing:
+            details.append(f"{len(missing)} missing hourly timestamps")
+        if unexpected:
+            details.append(f"{len(unexpected)} unexpected timestamps")
+        raise ValueError(f"Incomplete {source} coverage for {identifier}: {', '.join(details)}")
+
+
 def _nt_value(value: object) -> str:
-    if isinstance(value, URIRef):
-        return f"<{value}>"
-    if isinstance(value, Literal):
-        lexical = value.toPython()
-        if value.datatype is not None:
-            return f'"{str(lexical)}"^^<{value.datatype}>'
-        if value.language:
-            return f'"{str(lexical)}"@{value.language}'
-        return f'"{str(lexical)}"'
+    if isinstance(value, (URIRef, Literal)):
+        return value.n3()
     raise TypeError(f"Unsupported RDF value: {type(value)!r}")
 
 
-# Sort triples in a graph for consistent serialization
-def _sort_triples(graph: Graph) -> Iterable[Tuple[URIRef, URIRef, object]]:
-    return sorted(graph, key=lambda triple: (str(triple[0]), str(triple[1]), str(triple[2])))
-
-
-# Serialize a graph to N-Triples format and write to a file
 def serialize_graph_to_nt(graph: Graph, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    lines = []
-    for subject, predicate, obj in _sort_triples(graph):
-        lines.append(f"{_nt_value(subject)} {_nt_value(predicate)} {_nt_value(obj)} .")
+    lines = sorted(
+        f"{_nt_value(subject)} {_nt_value(predicate)} {_nt_value(obj)} ."
+        for subject, predicate, obj in graph
+    )
     destination.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
-# Compute the SHA-256 hash of a file's contents
 def sha256_of_file(path: Path) -> str:
     digest = sha256()
     digest.update(path.read_bytes())
     return digest.hexdigest()
 
 
+def build_named_graphs(
+    metadata_path: Path,
+    electricity_path: Path | None = None,
+    weather_path: Path | None = None,
+) -> Dataset:
+    data_dir = metadata_path.parent
+    electricity_path = electricity_path or (
+        data_dir / "meters" / "cleaned" / "electricity_cleaned.csv"
+    )
+    weather_path = weather_path or data_dir / "weather" / "weather.csv"
 
-# Build named graphs from metadata
-def build_named_graphs(metadata_path: Path) -> ConjunctiveGraph:
-    df = pd.read_csv(metadata_path)
-    sample = df.head(10).copy()
+    with metadata_path.open(newline="", encoding="utf-8-sig") as metadata_file:
+        metadata_rows = {
+            row["building_id"]: row
+            for row in csv.DictReader(metadata_file)
+            if row.get("building_id")
+        }
 
-    # Create a ConjunctiveGraph to hold multiple named graphs
-    # dataset = ConjunctiveGraph()
-    dataset = Dataset()  # Use Dataset for newer versions of rdflib
+    missing_buildings = set(SELECTED_BUILDINGS) - metadata_rows.keys()
+    if missing_buildings:
+        raise ValueError(f"Buildings missing from metadata: {sorted(missing_buildings)}")
 
-    buildings_graph = dataset.get_context(BUILDINGS_GRAPH)
-    weather_graph = dataset.get_context(WEATHER_GRAPH)
-    measurements_graph = dataset.get_context(MEASUREMENTS_GRAPH)
+    selected_metadata = {building_id: metadata_rows[building_id] for building_id in SELECTED_BUILDINGS}
+    sites = {row["site_id"] for row in selected_metadata.values() if row.get("site_id")}
+    if len(sites) != 1 or any(not row.get("site_id") for row in selected_metadata.values()):
+        raise ValueError("Selected buildings must have a metadata site_id")
 
+    dataset = Dataset(default_union=False)
+    buildings_graph = dataset.graph(BUILDINGS_GRAPH)
+    measurements_graph = dataset.graph(MEASUREMENTS_GRAPH)
+    weather_graph = dataset.graph(WEATHER_GRAPH)
 
-    # Add building and site information to the buildings graph
-    site_ids = sample["site_id"].dropna().unique().tolist()
-    for _, row in sample.iterrows():
-        building_id = str(row["building_id"]) if pd.notna(row["building_id"]) else "unknown"
-        site_id = str(row["site_id"]) if pd.notna(row["site_id"]) else "unknown"
+    for building_id, row in selected_metadata.items():
         building_uri = URIRef(BASE + f"building/{normalize_identifier(building_id)}")
-        site_uri = URIRef(BASE + f"site/{normalize_identifier(site_id)}")
+        site_uri = URIRef(BASE + f"site/{normalize_identifier(row['site_id'])}")
         buildings_graph.add((building_uri, RDF.type, BASE.Building))
         buildings_graph.add((site_uri, RDF.type, BASE.Site))
         buildings_graph.add((building_uri, BASE.belongsToSite, site_uri))
 
-        # Add area information if available
-        if pd.notna(row["sqm"]):
-            buildings_graph.add((building_uri, BASE.hasArea, Literal(float(row["sqm"]), datatype=XSD.float)))
+        area = row.get("sqm", "").strip()
+        if area:
+            buildings_graph.add(
+                (
+                    building_uri,
+                    BASE.hasArea,
+                    _decimal_literal(_parse_decimal(area, source=f"metadata sqm for {building_id}")),
+                )
+            )
 
-        # Add primary space usage information if available
-        usage_value = row["primaryspaceusage"]
-        if pd.notna(usage_value):
-            usage_uri = URIRef(BASE + f"usage/{normalize_identifier(usage_value)}")
+        usage = row.get("primaryspaceusage", "").strip()
+        if usage:
+            usage_uri = URIRef(BASE + f"usage/{normalize_identifier(usage)}")
             buildings_graph.add((usage_uri, RDF.type, BASE.PrimarySpaceUsage))
             buildings_graph.add((building_uri, BASE.hasUsage, usage_uri))
 
+    readings: dict[datetime, dict[str, Decimal]] = {}
+    with electricity_path.open(newline="", encoding="utf-8-sig") as electricity_file:
+        reader = csv.DictReader(electricity_file)
+        fields = set(reader.fieldnames or ())
+        required_fields = {"timestamp", *SELECTED_BUILDINGS}
+        if not required_fields <= fields:
+            raise ValueError(
+                f"Electricity CSV is missing columns: {sorted(required_fields - fields)}"
+            )
 
-    # Add weather information to the weather graph
-    for index, site_id in enumerate(site_ids[:3]): # Limit to first 3 sites for demonstration
-        site_uri = URIRef(BASE + f"site/{normalize_identifier(site_id)}")
-        station_uri = URIRef(BASE + f"weather_station/{normalize_identifier(site_id)}")
-        weather_graph.add((station_uri, RDF.type, BASE.WeatherStation))
-        weather_graph.add((station_uri, BASE.atSite, site_uri))
+        for row in reader:
+            timestamp = _parse_datetime(row["timestamp"], source=str(electricity_path))
+            if not PERIOD_START <= timestamp < PERIOD_END:
+                continue
+            if timestamp in readings:
+                raise ValueError(f"Duplicate electricity timestamp: {timestamp.isoformat()}")
 
-        for day in range(1, 4): # Limit to first 3 days for demonstration
-            observation_uri = URIRef(BASE + f"weather_observation/{normalize_identifier(site_id)}/{day}")
-            temperature = 18.0 + (index * 2.5) + day 
-            weather_graph.add((observation_uri, RDF.type, BASE.WeatherObservation))
-            weather_graph.add((observation_uri, BASE.atSite, site_uri))
-            weather_graph.add((observation_uri, BASE.temperatureCelsius, Literal(temperature, datatype=XSD.float)))
+            readings[timestamp] = {
+                building_id: _parse_decimal(
+                    row[building_id],
+                    source=f"electricity meter {building_id} at {timestamp.isoformat()}",
+                )
+                for building_id in SELECTED_BUILDINGS
+            }
 
-    
-    # Add electricity readings to the measurements graph
-    for index, building_id in enumerate(sample["building_id"].head(3).tolist()):
-        normalized_building = normalize_identifier(building_id)
-        building_uri = URIRef(BASE + f"building/{normalized_building}")
-        meter_uri = URIRef(BASE + f"meter/{normalized_building}/electricity")
-        for hour in range(3): # Limit to first 3 hours for demonstration
-            reading_uri = URIRef(BASE + f"reading/{normalized_building}/{hour}")
-            value = 42.0 + index * 8.5 + hour # Generate a sample reading value
+    _validate_coverage(set(readings), source="electricity", identifier=", ".join(SELECTED_BUILDINGS))
+
+    for timestamp, values in readings.items():
+        timestamp_literal = _datetime_literal(timestamp)
+        for building_id, value in values.items():
+            building_uri = URIRef(BASE + f"building/{normalize_identifier(building_id)}")
+            meter_uri = URIRef(BASE + f"meter/{normalize_identifier(building_id)}/electricity")
+            reading_uri = URIRef(
+                BASE + f"reading/{normalize_identifier(building_id)}/{timestamp.isoformat()}"
+            )
             measurements_graph.add((reading_uri, RDF.type, BASE.ElectricityReading))
             measurements_graph.add((reading_uri, BASE.forBuilding, building_uri))
             measurements_graph.add((reading_uri, BASE.meter, meter_uri))
-            measurements_graph.add((reading_uri, BASE.kwh, Literal(value, datatype=XSD.float)))
+            measurements_graph.add((meter_uri, RDF.type, BASE.ElectricityMeter))
+            measurements_graph.add((meter_uri, BASE.meterForBuilding, building_uri))
+            measurements_graph.add((reading_uri, BASE.observedAt, timestamp_literal))
+            measurements_graph.add((reading_uri, BASE.electricityValue, _decimal_literal(value)))
+
+    site_id = next(iter(sites))
+    site_uri = URIRef(BASE + f"site/{normalize_identifier(site_id)}")
+    station_uri = URIRef(BASE + f"weather_station/{normalize_identifier(site_id)}")
+    weather_graph.add((station_uri, RDF.type, BASE.WeatherStation))
+    weather_graph.add((station_uri, BASE.atSite, site_uri))
+
+    weather_observations: dict[datetime, Decimal] = {}
+    with weather_path.open(newline="", encoding="utf-8-sig") as weather_file:
+        reader = csv.DictReader(weather_file)
+        required_fields = {"timestamp", "site_id", "airTemperature"}
+        fields = set(reader.fieldnames or ())
+        if not required_fields <= fields:
+            raise ValueError(f"Weather CSV is missing columns: {sorted(required_fields - fields)}")
+
+        for row in reader:
+            if row["site_id"] != site_id:
+                continue
+            timestamp = _parse_datetime(row["timestamp"], source=str(weather_path))
+            if not PERIOD_START <= timestamp < PERIOD_END:
+                continue
+            if timestamp in weather_observations:
+                raise ValueError(
+                    f"Duplicate weather timestamp for site {site_id}: {timestamp.isoformat()}"
+                )
+            weather_observations[timestamp] = _parse_decimal(
+                row["airTemperature"],
+                source=f"weather airTemperature for site {site_id} at {timestamp.isoformat()}",
+            )
+
+    _validate_coverage(set(weather_observations), source="weather", identifier=site_id)
+
+    for timestamp, temperature in weather_observations.items():
+        observation_uri = URIRef(
+            BASE + f"weather_observation/{normalize_identifier(site_id)}/{timestamp.isoformat()}"
+        )
+        weather_graph.add((observation_uri, RDF.type, BASE.WeatherObservation))
+        weather_graph.add((observation_uri, BASE.atSite, site_uri))
+        weather_graph.add((observation_uri, BASE.observedAt, _datetime_literal(timestamp)))
+        weather_graph.add((observation_uri, BASE.airTemperature, _decimal_literal(temperature)))
 
     return dataset
 
 
-# Export named graphs to N-Triples files and compute their SHA-256 hashes
-def export_named_graphs(dataset: ConjunctiveGraph, output_dir: Path) -> Dict[str, Dict[str, str]]:
+def export_named_graphs(dataset: Dataset, output_dir: Path) -> dict[str, dict[str, str]]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    exports: Dict[str, Dict[str, str]] = {}
+    exports: dict[str, dict[str, str]] = {}
 
-    # for graph in dataset.contexts():
-    for graph in dataset.graphs():  # Use .graphs() for Dataset
-        if str(graph.identifier) == "urn:x-rdflib:default": # Validate only when using Dataset, skip the default graph
-            continue  # Skip the default graph
-
-        graph_name = str(graph.identifier).split("/")[-1]
+    for graph_name, graph_uri in GRAPH_EXPORTS.items():
         path = output_dir / f"{graph_name}.nt"
-        serialize_graph_to_nt(graph, path)
+        serialize_graph_to_nt(dataset.graph(graph_uri), path)
         exports[graph_name] = {
             "path": str(path),
             "sha256": sha256_of_file(path),
         }
-
     return exports
 
 
-# %% Main Execution
-# def main() -> None:
-#     project_root = Path(__file__).resolve().parents[1]
-#     metadata_path = project_root / "data" / "metadata.csv"
-#     output_dir = Path(__file__).resolve().parent / "output"
+def main() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    metadata_path = project_root / "data" / "metadata.csv"
+    output_dir = Path(__file__).resolve().parent / "output"
+    exports = export_named_graphs(build_named_graphs(metadata_path), output_dir)
 
-#     dataset = build_named_graphs(metadata_path)
-#     exports = export_named_graphs(dataset, output_dir)
-
-#     print("Named graph exports generated:")
-#     for graph_name, info in sorted(exports.items()):
-#         print(f"- {graph_name}: {info['path']} (sha256={info['sha256']})")
+    print("Named graph exports generated:")
+    for graph_name, info in sorted(exports.items()):
+        print(f"- {graph_name}: {info['path']} (sha256={info['sha256']})")
 
 
-# if __name__ == "__main__":
-#     main()
-
-project_root = Path(__file__).resolve().parents[1]          # Get the project root directory (two levels up from the current file)
-metadata_path = project_root / "data" / "metadata.csv"      # Get the path to the metadata CSV file
-output_dir = Path(__file__).resolve().parent / "output"     # Get the output directory (same level as the current file, in a folder named "output")
-
-dataset = build_named_graphs(metadata_path)
-exports = export_named_graphs(dataset, output_dir)
-
-print("Named graph exports generated:")
-for graph_name, info in sorted(exports.items()):
-    print(f"- {graph_name}: {info['path']} (sha256={info['sha256']})")
-
+if __name__ == "__main__":
+    main()

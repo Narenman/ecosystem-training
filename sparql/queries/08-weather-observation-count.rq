@@ -1,0 +1,13 @@
+PREFIX ex: <https://ecosystem-training.local/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+SELECT ?site (COUNT(DISTINCT ?observation) AS ?count)
+WHERE {
+  GRAPH <https://ecosystem-training.local/graphs/weather> {
+    ?observation rdf:type ex:WeatherObservation ;
+                 ex:atSite ?site ;
+                 ex:airTemperature ?temperature .
+  }
+}
+GROUP BY ?site
+ORDER BY ?site

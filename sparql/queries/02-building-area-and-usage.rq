@@ -1,0 +1,12 @@
+PREFIX ex: <https://ecosystem-training.local/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+SELECT ?building ?area ?usage
+WHERE {
+  GRAPH <https://ecosystem-training.local/graphs/buildings> {
+    ?building rdf:type ex:Building ;
+              ex:hasArea ?area ;
+              ex:hasUsage ?usage .
+  }
+}
+ORDER BY ?building

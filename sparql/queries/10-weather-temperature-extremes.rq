@@ -1,0 +1,8 @@
+PREFIX ex: <https://ecosystem-training.local/>
+
+SELECT (MIN(?temperature) AS ?minimum) (MAX(?temperature) AS ?maximum)
+WHERE {
+  GRAPH <https://ecosystem-training.local/graphs/weather> {
+    ?observation ex:airTemperature ?temperature .
+  }
+}

@@ -2,3 +2,6 @@
 .ipynb_checkpoints/
 __pycache__/
 .vscode/
+data/meters/kaggle/kaggle.csv
+data/meters/cleaned/electricity_cleaned.csv
+data/meters/raw/electricity.csv

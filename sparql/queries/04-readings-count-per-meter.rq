@@ -1,0 +1,13 @@
+PREFIX ex: <https://ecosystem-training.local/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+SELECT ?meter (COUNT(DISTINCT ?reading) AS ?count)
+WHERE {
+  GRAPH <https://ecosystem-training.local/graphs/measurements> {
+    ?reading rdf:type ex:ElectricityReading ;
+             ex:meter ?meter ;
+             ex:electricityValue ?value .
+  }
+}
+GROUP BY ?meter
+ORDER BY ?meter

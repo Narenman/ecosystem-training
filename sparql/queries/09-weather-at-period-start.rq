@@ -1,0 +1,18 @@
+PREFIX ex: <https://ecosystem-training.local/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT ?timestamp ?temperature
+WHERE {
+  GRAPH <https://ecosystem-training.local/graphs/weather> {
+    ?observation rdf:type ex:WeatherObservation ;
+                 ex:atSite <https://ecosystem-training.local/site/robin> ;
+                 ex:observedAt ?timestamp ;
+                 ex:airTemperature ?temperature .
+    VALUES ?timestamp {
+      "2016-01-01T00:00:00"^^xsd:dateTime
+      "2016-01-01T01:00:00"^^xsd:dateTime
+    }
+  }
+}
+ORDER BY ?timestamp

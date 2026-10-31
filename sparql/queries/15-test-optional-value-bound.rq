@@ -1,0 +1,12 @@
+PREFIX ex: <https://ecosystem-training.local/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX test: <urn:s3-test:>
+
+SELECT ?reading ?value
+WHERE {
+  GRAPH test:measurements {
+    ?reading rdf:type ex:ElectricityReading .
+    OPTIONAL { ?reading ex:electricityValue ?value . }
+  }
+}
+ORDER BY ?reading

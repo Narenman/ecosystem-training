@@ -1,0 +1,11 @@
+PREFIX ex: <https://ecosystem-training.local/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+SELECT ?reading
+WHERE {
+  GRAPH <https://ecosystem-training.local/graphs/measurements> {
+    ?reading rdf:type ex:ElectricityReading .
+    FILTER NOT EXISTS { ?reading ex:electricityValue ?value . }
+  }
+}
+ORDER BY ?reading
